@@ -1,0 +1,1237 @@
+//create db + schema + stage//
+
+create or replace database manage_db
+create or replace schema external_stages
+create or replace stage aws_stage
+    url = 's3://bucketsnowflakes3'
+    credentials = (aws_key_id = 'abcd_dummy_id' aws_secret_key = '1234abcd_key')
+    
+    
+desc stage aws_stage
+
+alter stage aws_stage
+set credentials = (aws_key_id = 'xyz_dummy_id' aws_secret_key = '987xyz')
+
+create or replace stage aws_stage
+    url = 's3://bucketsnowflakes3'
+    
+list @aws_stage
+
+//create table and copy values//
+
+create table "OUR_FIRST_DB"."PUBLIC"."orders"(
+  order_id varchar(30),
+  amount int,
+  profit int,
+  quantity int,
+  category varchar(30),
+  subcategory varchar(30));
+  
+  select * from "OUR_FIRST_DB"."PUBLIC"."orders"
+
+copy into "OUR_FIRST_DB"."PUBLIC"."orders"
+from @MANAGE_DB.EXTERNAL_STAGES.aws_stage
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+files = ('OrderDetails.csv')  
+
+create or replace table our_first_db.public.orders_ex(
+order_id varchar (30),
+amount int)
+
+copy into our_first_db.public.orders_ex
+from (select s.$1, s.$2 from @manage_db.external_stages.aws_stage s)
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+files = ('OrderDetails.csv')
+
+select * from "OUR_FIRST_DB"."PUBLIC"."orders"
+select * from "OUR_FIRST_DB"."PUBLIC"."ORDERS_EX"
+
+create or replace table "OUR_FIRST_DB"."PUBLIC"."ORDERS_EX"(
+  order_id varchar(30),
+  amount int,
+  profit int,
+  profitable_flag varchar(30))
+  
+copy into "OUR_FIRST_DB"."PUBLIC"."ORDERS_EX"
+from (select s.$1,s.$2,s.$3,
+     case when cast(s.$3 as int)>0 then 'profitable' else 'not profitable' end
+     from @manage_db.external_stages.aws_stage s)
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+files = ('OrderDetails.csv')
+
+select * from "OUR_FIRST_DB"."PUBLIC"."ORDERS_EX"
+
+//errors integrations//
+
+create or replace stage aws_stage_errors
+url = 's3://bucketsnowflakes4'
+
+list @aws_stage_errors
+
+create or replace table "OUR_FIRST_DB"."PUBLIC"."orders_errors"(
+order_id varchar(30),
+amount int,
+profit int,
+quantity int,
+category varchar(30),
+subcategory varchar(30))
+
+
+
+truncate table "OUR_FIRST_DB"."PUBLIC"."orders_errors"
+
+copy into "OUR_FIRST_DB"."PUBLIC"."orders_errors"
+from @manage_db.external_stages.aws_stage_errors
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+files = ('OrderDetails_error.csv','OrderDetails_error2.csv')
+on_error = 'skip_file_5'
+
+
+//validation check while copying//
+
+create or replace database copy_db
+
+create or replace table orders(
+order_id varchar(30),
+amounnt varchar,
+profit int,
+quantity int,
+category varchar(30),
+subcategory varchar(30))
+
+create or replace stage copy_db.public.aws_stage_copy
+url = 's3://snowflakebucket-copyoption/size/'
+
+list @copy_db.public.aws_stage_copy
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+validation_mode = return_errors
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+validation_mode = return_5_rows
+
+ create or replace stage aws_stage_copy
+ url = 's3://snowflakebucket-copyoption/returnfailed/'
+ 
+ list @copy_db.public.aws_stage_copy
+ 
+ copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+validation_mode = return_errors
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+validation_mode = return_1_rows
+
+//storing errors in tables//
+create or replace table orders(
+order_id varchar(30),
+amount varchar,
+profit int,
+quantity int,
+category varchar(30),
+subcategory varchar(30))
+
+//with validation mode method//
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+validation_mode = return_errors
+
+//storing errors in a table//
+create or replace table rejected as
+select rejected_record from table(result_scan(last_query_id()))
+
+select * from rejected
+
+// with on_errors = 'continue' method//
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+on_error = 'continue'
+
+select * from table(validate(orders, job_id => '_last'))
+
+//working with rejected records//
+
+select rejected_record from rejected
+
+create or replace table rejected_values as
+select
+split_part(rejected_record,',',1) as order_id,
+split_part(rejected_record,',',2) as amount,
+split_part(rejected_record,',',3) as profit,
+split_part(rejected_record,',',4) as quantity,
+split_part(rejected_record,',',5) as category,
+split_part(rejected_record,',',6) as subcategory from rejected
+
+select * from rejected_values
+
+
+//copying with truncate//
+
+create or replace table orders(
+order_id varchar(30),
+amount varchar,
+profit int,
+quantity int,
+category varchar(10),
+subcategory varchar(30))
+
+create or replace stage aws_stage_copy
+url = 's3://snowflakebucket-copyoption/size/'
+
+list @aws_stage_copy
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+truncatecolumns = true
+
+select * from orders
+
+//using force option//
+
+create or replace table orders(
+order_id varchar(30),
+amount varchar,
+profit int,
+quantity int,
+category varchar(30),
+subcategory varchar(30))
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+
+select * from orders //3000 records
+
+copy into copy_db.public.orders
+from @aws_stage_copy
+file_format = (type = csv field_delimiter = ',' skip_header = 1)
+pattern = '.*Order.*'
+force = true
+
+select * from orders //6000 records - duplicated
+
+//loading unstructured data//
+
+create or replace stage manage_db.external_stages.jsonstage
+url = 's3://bucketsnowflake-jsondemo';
+
+CREATE OR REPLACE SCHEMA MANAGE_DB.FILE_FORMATS;
+
+create or replace file format "MANAGE_DB"."FILE_FORMATS"."JSONFORMAT"
+TYPE = JSON;
+
+create or replace table our_first_db.public.json_raw(
+raw_file variant);
+
+copy into our_first_db.public.json_raw
+from @manage_db.external_stages.jsonstage
+file_format = manage_db.file_formats.jsonformat
+files = ('HR_data.json');
+
+select * from our_first_db.public.json_raw;
+
+//create columns and parse the data present in json format//
+
+select raw_file:city from our_first_db.public.json_raw;
+select $1:first_name from our_first_db.public.json_raw;
+
+select raw_file:first_name::string as first_name from our_first_db.public.json_raw; //converted first_name into string so ""are removed
+select raw_file:id::int as id from our_first_db.public.json_raw;
+
+//now combining this and creating a table from json raw data//
+
+select
+raw_file:id::int as id,
+raw_file:first_name::string as first_name,
+raw_file:last_name::string as first_name,
+raw_file:gender::string as gender
+from our_first_db.public.json_raw;
+
+//handling nested data//
+
+select raw_file:job::string from our_first_db.public.json_raw;
+
+select raw_file:job.salary::int as salary from our_first_db.public.json_raw;
+
+select
+    raw_file:first_name::string as first_name,
+    raw_file:job.title::string as job_title,
+    raw_file:job.salary::int as salary
+from our_first_db.public.json_raw;
+
+//handling arrays//
+
+select raw_file:prev_company as prev_company from our_first_db.public.json_raw;
+
+select raw_file:prev_company[0]::string as prev_company from our_first_db.public.json_raw;
+
+select raw_file:prev_company[1]::string as prev_company from our_first_db.public.json_raw;
+
+select array_size(raw_file:prev_company) as pre_company from our_first_db.public.json_raw;
+
+select raw_file:spoken_langauges as spoken_language from our_first_db.public.json_raw;
+
+create view employee_info as
+select raw_file:id::int as id,
+       raw_file:first_name::string as name,
+       raw_file:prev_company[0]::string as prev_company
+       from our_first_db.public.json_raw
+union all                       
+select raw_file:id::int as id,
+       raw_file:first_name::string as name,
+       raw_file:prev_company[1]::string as prev_company
+       from our_first_db.public.json_raw
+order by id;  //this will double our records//
+
+select * from employee_info
+
+//better to use inner join or join so that data cannot be doubled//
+create or replace view employee_info as
+select t1.raw_file:id::int as id,
+       t1.raw_file:first_name::string as first_name,
+       t1.raw_file:last_name::string as last_name,
+       t1.raw_file:gender::string as gender,
+       t1.raw_file:city::string as city,
+       t1.raw_file:job.title::string as job_title,
+       t1.raw_file:job.salary::int as salary,
+       t1.raw_file:prev_company[0]::string as prev_comp1,
+       t2.raw_file:prev_company[1]::string as prev_comp2,
+       t1.raw_file:spoken_languages[0].language::string as I_language,
+       t1.raw_file:spoken_languages[0].level::string as I_level,
+       t1.raw_file:spoken_languages[1].language::string as II_language,
+       t1.raw_file:spoken_languages[1].level::string as II_level,
+       t2.raw_file:spoken_languages[2].language::string as III_language,
+       t2.raw_file:spoken_languages[2].level::string as III_level
+       from our_first_db.public.json_raw t1
+join our_first_db.public.json_raw t2
+on t1.raw_file:id::int = t2.raw_file:id::int
+
+//using flatten option //
+
+select raw_file:first_name::string as first_name,
+f.value:language::string as first_language,
+f.value:level::string as level_spoken
+from our_first_db.public.json_raw, table(flatten(raw_file:spoken_languages)) f;
+
+//creating table for above values//
+Create or replace table languages as
+select raw_file:first_name::string as first_name,
+f.value:language::string as first_language,
+f.value:level::string as level_spoken
+from our_first_db.public.json_raw, table(flatten(raw_file:spoken_languages)) f;
+
+select * from languages;
+
+//create file format and stage object//
+
+create or replace file format manage_db.file_formats.parquet_format
+    type = 'parquet';
+    
+create or replace stage manage_db.external_stages.parquetstage
+    url = 's3://snowflakeparquetdemo'
+    file_format = manage_db.file_formats.parquet_format;
+    
+//preview the data//
+list @manage_db.external_stages.parquetstage;
+
+select * from @manage_db.external_stages.parquetstage;
+
+//syntax for querying unstructured data//
+
+select
+  $1:"__index_level_0__",
+  $1:"cat_id",
+  $1:"d",
+  $1:"date",
+  $1:"dept_id",
+  $1:"id",
+  $1:"item_id",
+  $1:"state_id",
+  $1:"store_id",
+  $1:"value"
+from @manage_db.external_stages.parquetstage;
+
+//date coversion//
+
+
+select
+  $1:__index_level_0__::int as index_level,
+  $1:cat_id::varchar(50) as category,
+  date($1:date::int) as date,
+  $1:dept_id::varchar(50) as dept_id,
+  $1:id::varchar(50) as id,
+  $1:item_id::varchar(50) as item_id,
+  $1:state_id::varchar(50) as state_id,
+  $1:store_id::varchar(50) as store_id,
+  $1:value::int as value
+from @manage_db.external_stages.parquetstage;
+
+//adding metadata//
+
+select
+  $1:__index_level_0__::int as index_level,
+  $1:cat_id::varchar(50) as category,
+  date($1:date::int) as date,
+  $1:dept_id::varchar(50) as dept_id,
+  $1:id::varchar(50) as id,
+  $1:item_id::varchar(50) as item_id,
+  $1:state_id::varchar(50) as state_id,
+  $1:store_id::varchar(50) as store_id,
+  $1:value::int as value,
+  metadata$filename as filename,
+  metadata$file_row_number as rownumber,
+  to_timestamp_ntz(current_timestamp) as load_date
+from @manage_db.external_stages.parquetstage;
+
+//creating destination table//
+
+create or replace table our_first_db.public.parquet_data(
+    row_number int,
+    index_level int,
+    cat_id varchar(50),
+    date date,
+    dept_id varchar(50),
+    id varchar(50),
+    item_id varchar(50),
+    state_id varchar(50),
+    store_id varchar(50),
+    value int,
+    load_date timestamp default to_timestamp_ntz(current_timestamp));
+    
+select * from our_first_db.public.parquet_data
+
+//load parquet data//
+copy into our_first_db.public.parquet_data
+    from (select
+         metadata$file_row_number,
+         $1:__index_level_0__::int,
+         $1:cat_id::varchar(50),
+         date($1:date::int),
+         $1:dept_id::varchar(50),
+  $1:id::varchar(50) as id,
+  $1:item_id::varchar(50) as item_id,
+  $1:state_id::varchar(50) as state_id,
+  $1:store_id::varchar(50) as store_id,
+  $1:value::int as value,
+  metadata$filename as filename,
+  metadata$file_row_number as rownumber,
+  to_timestamp_ntz(current_timestamp) as load_date
+from @manage_db.external_stages.parquetstage;)
+
+//creating destination table//
+
+create or replace table our_first_db.public.parquet_data(
+    row_number int,
+    index_level int,
+    cat_id varchar(50),
+    date date,
+    dept_id varchar(50),
+    id varchar(50),
+    item_id varchar(50),
+    state_id varchar(50),
+    store_id varchar(50),
+    value int,
+    load_date timestamp default to_timestamp_ntz(current_timestamp));
+    
+select * from our_first_db.public.parquet_data
+
+//load parquet data//
+copy into our_first_db.public.parquet_data
+    from (select
+         metadata$file_row_number,
+         $1:__index_level_0__::int,
+         $1:cat_id::varchar(50),
+         date($1:date::int),
+         $1:dept_id::varchar(50),
+         $1:id::varchar(50) as id,
+         $1:item_id::varchar(50) as item_id,
+         $1:state_id::varchar(50) as state_id,
+         $1:store_id::varchar(50) as store_id,
+         $1:value::int as value,
+         to_timestamp_ntz(current_timestamp)
+    from @manage_db.external_stages.parquetstage);
+
+select * from our_first_db.public.parquet_data
+order by index_level
+
+//creating DWH for data scientists and DBA//
+//data scientists//
+
+create warehouse DS_WH
+with warehouse_size = 'small'
+warehouse_type = 'standard'
+auto_suspend = 300
+auto_resume = TRUE
+min_cluster_count = 1
+max_cluster_count = 1
+scaling_policy = 'standard'
+
+//dba//
+create warehouse DBA_WH
+with warehouse_size = 'xsmall'
+warehouse_type = 'standard'
+auto_suspend = 300
+auto_resume = TRUE
+min_cluster_count = 1
+max_cluster_count =1
+scaling_policy = 'standard'
+
+//create role and assign users//
+
+create role data_scientists
+grant usage on warehouse DS_WH to role data_scientists
+
+create role DBA
+grant usage on warehouse DBA_WH to role DBA
+
+//create & assign users//
+
+create user DS1 password = 'DS1' login_name = 'DS1' default_role = 'Data Scientist' default_warehouse = 'DS_WH' must_change_password = FALSE
+create user DS2 password = 'DS2' login_name = 'DS2' default_role = 'Data Scientist' default_warehouse = 'DS_WH' must_change_password = FALSE
+create user DS3 password = 'DS3' login_name = 'DS3' default_role = 'Data Scientist' default_warehouse = 'DS_WH' must_change_password = FALSE
+
+grant role data_scientists to user DS1
+grant role data_scientists to user DS2
+grant role data_scientists to user DS3
+
+create user DBA1 password = 'DBA1' login_name = 'DBA1' default_role = 'DBA' default_warehouse = 'DBA_WH' must_change_password = FALSE
+create user DBA2 password = 'DBA2' login_name = 'DBA2' default_role = 'DBA' default_warehouse = 'DBA_WH' must_change_password = FALSE
+
+grant role DBA to user DBA1
+grant role DBA to user DBA2
+
+/////SCALING OUT////
+
+select * from "SNOWFLAKE_SAMPLE_DATA"."TPCDS_SF100TCL".web_site T1
+cross join "SNOWFLAKE_SAMPLE_DATA"."TPCDS_SF100TCL".web_site T2
+cross join "SNOWFLAKE_SAMPLE_DATA"."TPCDS_SF100TCL".web_site T3
+cross join (select top 50 * from "SNOWFLAKE_SAMPLE_DATA"."TPCDS_SF100TCL".web_site) T4
+
+//using caching memory//
+
+select avg(c_birth_year) from snowflake_sample_data.tpcds_sf100tcl.customer
+
+select avg(c_birth_year) from snowflake_sample_data.tpcds_sf100tcl.customer
+
+select avg(c_birth_year) from snowflake_sample_data.tpcds_sf100tcl.customer
+
+////CLUSTERING////
+
+//publicly accessible staging area//
+
+create or replace stage manage_db.external_stages.aws_stage
+    url = 's3://bucketsnowflakes3';
+    
+list @manage_db.external_stages.aws_stage;
+
+copy into "OUR_FIRST_DB"."PUBLIC"."orders"
+    from @manage_db.external_stages.aws_stage
+    file_format = (type = csv field_delimiter = ',' skip_header = 1)
+    pattern ='.*OrderDetails.*';
+    
+//creating new table//
+create or replace table orders_caching(
+order_id varchar(30),
+amount number(30,0),
+profit number (30,0),
+quantity number(30,0),
+category varchar(30),
+subcategory varchar(30),
+date date);
+
+insert into orders_caching
+select
+t1.order_id,
+t1.amount,
+t1.profit,
+t1.quantity,
+t1.category,
+t1.subcategory,
+date(uniform(150000000, 170000000,(random())))
+from "OUR_FIRST_DB"."PUBLIC"."orders" t1
+cross join (select*from "OUR_FIRST_DB"."PUBLIC"."orders") t2
+cross join (select top 100 * from "OUR_FIRST_DB"."PUBLIC"."orders") t3
+
+//query performance before cluster key//
+select * from orders_caching where date = '1975-05-21'
+
+//adding cluster key & compare the results//
+
+alter table orders_caching cluster by (date)
+
+select * from orders_caching where date = '1975-05-20'
+
+//not ideal clustering and adding a different cluster key//
+select * from orders_caching where MONTH(DATE)=5
+
+ALTER TABLE ORDERS_CACHING CLUSTER BY (MONTH(DATE))
+
+select * from orders_caching where MONTH(DATE)=4
+
+...........aws storage integration + loading data ........
+//create storage integration object //
+
+create or replace storage integration s3_int
+type = external_stage
+storage_provider = s3
+enabled = true
+storage_aws_role_arn = 'arn:aws:iam::433528069383:role/snowflake-access-role'
+storage_allowed_locations = ('s3://snowflakesbucket123rc/csv/','s3://snowflakesbucket123rc/json/')
+comment = 'this is an optional comment'
+
+//see storage integration properties to fetch external_id so we can update in S3//
+
+desc integration s3_int
+
+//loading from S3//
+//create table first//
+
+create or replace table our_first_db.public.movie_titles(
+    show_id string,
+    type string,
+    title string,
+    director string,
+    cast string,
+    country string,
+    date_added string,
+    release_year string,
+    rating string,
+    duration string,
+    listed_in string,
+    description string);
+    
+//create file format object//
+
+create or replace file format manage_db.file_formats.csv_fileformat
+type = csv
+field_delimiter = ','
+skip_header = 1
+null_if = ('null', 'NULL')
+empty_field_as_null = true;
+
+//create stage object with integration object & file format object//
+
+create or replace stage manage_db.external_stages.csv_folder
+url = 's3://snowflakesbucket123rc/csv/'
+storage_integration = s3_int
+file_format = manage_db.file_formats.csv_fileformat
+
+//using copy command - copy data into table//
+
+copy into our_first_db.public.movie_titles
+from @manage_db.external_stages.csv_folder
+
+//as director name consists of multiple names separated by Comma, so we have to adjust our file-format accordingly//
+
+create or replace file format manage_db.file_formats.csv_fileformat
+type = csv
+field_delimiter = ','
+skip_header = 1
+null_if = ('null', 'NULL')
+empty_field_as_null = true
+field_optionally_enclosed_by = '"'
+
+//now again copying data into table//
+copy into our_first_db.public.movie_titles
+from @manage_db.external_stages.csv_folder
+
+select * from our_first_db.public.movie_titles
+
+//now its time for JSON file from AWS JSON folder//
+
+create or replace file format manage_db.file_formats.json_fileformat
+type = json
+
+//create stage object with integration object & file format//
+
+create or replace stage manage_db.external_stages.json_folder
+url = 's3://snowflakesbucket123rc/json/'
+storage_integration = s3_int
+file_format = manage_db.file_formats.json_fileformat
+
+select * from @manage_db.external_stages.json_folder
+
+//introduce columns//
+
+select
+$1:asin,
+$1:helpful,
+$1:overall,
+$1:reviewText,
+$1:reviewTime,
+$1:reviewerID,
+$1:reviewerName,
+$1:summary,
+$1:unixReviewTime
+from @manage_db.external_stages.json_folder;
+
+//format columns and use date functions//
+
+select
+$1:asin::string as asin,
+$1:helpful as helpful,
+$1:overall as overall,
+$1:reviewText::string as reviewtext,
+$1:reviewTime::string,
+$1:reviewerID::string,
+$1:reviewerName::string,
+$1:summary::string as summary,
+date($1:unixReviewTime::int) as reviewtime
+from @manage_db.external_stages.json_folder;
+
+
+//format columns and handle custom data//
+
+select
+$1:asin::string as asin,
+$1:helpful as helpful,
+$1:overall as overall,
+$1:reviewText::string as reviewtext,
+date_from_parts(
+        right($1:reviewTime::string,4),
+        left($1:reviewTime::string,2),
+        case when substring($1:reviewTime::string,5,1)=','
+             then substring($1:reviewTime::string,4,1) else substring($1:reviewTime::string,4,2) end),
+$1:reviewerID::string,
+$1:reviewerName::string,
+$1:summary::string as summary,
+date($1:unixReviewTime::int) as reviewtime
+from @manage_db.external_stages.json_folder;
+
+//create destination table//
+
+create or replace table our_first_db.public.reviews(
+    asin string,
+    helpful string,
+    overall string,
+    reviewtext string,
+    reviewtime date,
+    reviewerid string,
+    reviewername string,
+    summary string,
+    unixreviewtime date);
+    
+//copy into table//
+
+copy into our_first_db.public.reviews
+from (select
+      $1:asin::string as asin,
+      $1:helpful as helpful,
+      $1:overall as overall,
+      $1:reviewText::string as reviewtext,
+      date_from_parts(
+                      right($1:reviewTime::string,4),
+                      left($1:reviewTime::string,2),
+                      case when substring($1:reviewTime::string,5,1)=','
+                      then substring($1:reviewTime::string,4,1) else substring($1:reviewTime::string,4,2) end),
+      $1:reviewerID::string,
+      $1:reviewerName::string,
+      $1:summary::string as summary,
+      date($1:unixReviewTime::int) as reviewtime
+      from @manage_db.external_stages.json_folder);
+      
+//validate results//
+select * from our_first_db.public.reviews
+
+............AZURE INTEGRATION..............
+
+//create storage integration object that contains the access information//
+
+create or replace storage integration azure_integration
+type = external_stage
+storage_provider = azure
+enabled = true
+azure_tenant_id = 'ec7f43cb-23ff-4506-9761-ba6d372730fc'
+storage_allowed_locations = ('azure://storageaccountsrc68.blob.core.windows.net/snowflakecsv','azure://storageaccountsrc68.blob.core.windows.net/snowflakejson');
+
+
+//describe integration object to provide access//
+
+desc storage integration azure_integration;
+
+//create file format & stage objects//
+
+create or replace file format manage_db.public.fileformat_azure
+type = CSV
+field_delimiter = ','
+skip_header = 0;
+
+create or replace stage manage_db.public.stage_azure
+storage_integration = azure_integration
+url = "azure://storageaccountsrc68.blob.core.windows.net/snowflakecsv"
+file_format = fileformat_azure;
+
+--list files--
+list @manage_db.public.stage_azure;
+
+//query files and load data//
+
+select
+$1,
+$2,
+$3,
+$4,
+$5,
+$6,
+$7,
+$8,
+$9,
+$10,
+$11,$12,$13,$14,$15,$16,$17,$18,$19,$20 from @manage_db.public.stage_azure
+
+
+//now we have to skip headers as we are going to create table with these column names//
+
+create or replace file format manage_db.public.fileformat_azure
+type = CSV
+field_delimiter = ','
+skip_header = 1;
+
+
+create or replace table happiness(
+country_name varchar,
+regional_indicator varchar,
+ladder_score number(4,3),
+standard_error number(4,3),
+upperwhisker number(4,3),
+lowerwhisker number(4,3),
+logged_gdp number(5,3),
+social_support number(4,3),
+healthy_life_expectency number(5,3),
+freedom_to_make_life_choices number(4,3),
+generosity number(4,3),
+perceptions_of_corruption number(4,3),
+ladder_score_in_dystopia number(4,3),
+explained_by_log_gpd_per_capita number(4,3),
+explained_by_social_support number(4,3),
+explained_by_healthy_life_expectancy number(4,3),
+explained_by_freedom_to_make_life_choices number(4,3),
+explained_by_generosity number(4,3),
+explained_by_perceptions_of_corruption number(4,3),
+dystopia_residual number(4,3));
+
+select * from happiness;
+
+copy into happiness
+from @manage_db.public.stage_azure;
+
+select * from happiness;
+
+//load json file//
+
+create or replace file format manage_db.public.fileformat_azure_json
+type = json;
+
+create or replace stage manage_db.public.stage_azure
+storage_integration = azure_integration
+url = 'azure://storageaccountsrc68.blob.core.windows.net/snowflakejson'
+file_format = fileformat_azure_json;
+
+list @manage_db.public.stage_azure
+select * from @manage_db.public.stage_azure
+
+//query one attribute/column//
+
+select $1:"Car Model" from @manage_db.public.stage_azure
+ 
+//converting data type//
+
+select $1:"Car Model"::string from @manage_db.public.stage_azure
+ 
+--query all attribute--
+
+select
+$1:"Car Model"::string,
+$1:"Car Model Year"::int,
+$1:"car make"::string,
+$1:"first_name"::string,
+$1:"id"::int,
+$1:"last_name"::string
+from @manage_db.public.stage_azure;
+
+--query all attributes using aliases--
+
+select
+$1:"Car Model"::string as car_model,
+$1:"Car Model Year"::int as car_model_year,
+$1:"car make"::string as car_make,
+$1:"first_name"::string as first_name,
+$1:"id"::int as id,
+$1:"last_name"::string as last_name
+from @manage_db.public.stage_azure;
+
+create or replace table car_owner(
+car_model varchar,
+car_model_year int,
+car_make varchar,
+first_name varchar,
+id int,
+last_name varchar); 
+
+copy into car_owner
+from
+    (select
+        $1:"Car Model"::string as car_model,
+        $1:"Car Model Year"::int as car_model_year,
+        $1:"car make"::string as car_make,
+        $1:"first_name"::string as first_name,
+        $1:"id"::int as id,
+        $1:"last_name"::string as last_name
+        from @manage_db.public.stage_azure);
+
+select * from car_owner
+
+//alternative method//
+
+truncate table car_owner
+select * from car_owner
+
+create or replace table car_owner_raw(
+raw variant);
+
+copy into car_owner_raw
+from @manage_db.public.stage_azure;
+
+select * from car_owner_raw
+
+insert into car_owner
+(  select
+    $1:"Car Model"::string as car_model,
+    $1:"Car Model Year"::int as car_model_year,
+    $1:"car make"::string as car_make,
+    $1:"first_name"::string as first_name,
+    $1:"id"::int as id,
+    $1:"last_name"::string as last_name
+    from car_owner_raw);
+    
+select * from car_owner
+
+
+............SNOWPIPE.............
+//create table first//
+
+create or replace table our_first_db.public.employees(
+id int,
+first_name string,
+last_name string,
+email string,
+location string,
+department string);
+
+//create file format object//
+create or replace file format manage_db.file_formats.csv_fileformat
+type = csv
+field_delimiter = ','
+skip_header = 1
+null_if = ('null','NULL')
+empty_field_as_null = TRUE;
+
+//create stage object with integration object & file format object//
+
+create or replace stage manage_db.external_stages.csv_folder
+url = 's3://snowflakesbucket123rc/csv/snowpipe'
+storage_integration = s3_int
+file_format = manage_db.file_formats.csv_fileformat
+
+list @manage_db.external_stages.csv_folder
+
+//create schema to keep things organized//
+create or replace schema manage_db.pipes
+
+//define pipes//
+create or replace pipe manage_db.pipes.employee_pipe
+auto_ingest = true
+as
+copy into our_first_db.public.employees --first test this copy command, before executing whole sql query--
+from @manage_db.external_stages.csv_folder
+
+--describe pipe--
+desc pipe employee_pipe 
+
+select * from our_first_db.public.employees --checked after creating 100 rows, then checked after adding another file in snowpipe, it worked--
+                                            --data added automatically--wait for 30 to 60 sec--
+                                            
+//error handling//
+
+alter pipe employee_pipe refresh --to check the status of pipe and its events--
+
+select system$pipe_status('employee_pipe') --for checking pipe running or not--
+select * from table(information_schema.copy_history(
+    table_name =>'our_first_db.public.employees',
+    start_time =>dateadd(hour,-2,current_timestamp()))) --for checking the errors occured if any during copying--
+
+//managing pipes//
+
+desc pipe manage_db.pipes.employee_pipe;
+
+show pipes; --complete list of all pipes--
+
+show pipes like '%employee%'; --for limiting the pipes results--
+
+show pipes in database manage_db; --for limiting or searching in particular dbs--
+
+show pipes in schema manage_db.pipes; --for limiting or searching in particular dbs schema--
+
+show pipes like '%employee%' in database manage_db; --for searching a particular pipe with some initials into a db--
+
+//changing pipe (alter stage or file_format)--
+
+--prepare table first--
+create or replace table our_first_db.public.employees2(
+    id int,
+    first_name string,
+    last_name string,
+    email string,
+    location string,
+    department string);
+    
+--pause pipe (first)--
+alter pipe manage_db.pipes.employee_pipe set pipe_execution_paused = true;
+
+select system$pipe_status('employee_pipe') --for checking pipe running or not--
+
+--recreate the pipe accordingly to change the copy command--
+create or replace pipe manage_db.pipes.employee_pipe
+auto_ingest = true
+as
+copy into our_first_db.public.employees2
+from @manage_db.external_stages.csv_folder;
+
+alter pipe employee_pipe refresh; --list of all the files that has recieved by our pipe--
+
+--list files in stage--
+list @manage_db.external_stages.csv_folder;
+
+select * from our_first_db.public.employees2
+
+--reloading data manually in new table if data not copied--
+copy into our_first_db.public.employees2
+from @manage_db.external_stages.csv_folder
+
+--resume pipe--
+alter pipe manage_db.pipes.employee_pipe set pipe_execution_paused = false;
+
+--verify pipe is running or not--
+select system$pipe_status('manage_db.pipes.employee_pipe');
+
+.........TIME TRAVEL.........
+//setting up table//
+
+create or replace table our_first_db.public.test(
+    id int,
+    first_name string,
+    last_name string,
+    email string,
+    gender string,
+    job string,
+    phone string
+);
+
+create or replace file format manage_db.file_formats.csv_file
+    type = csv
+    field_delimiter = ','
+    skip_header = 1;
+    
+create or replace stage manage_db.external_stages.time_travel_stage
+    url = 's3://data-snowflake-fundamentals/time-travel/'
+    file_format = manage_db.file_formats.csv_file;
+    
+list @manage_db.external_stages.time_travel_stage;
+
+copy into our_first_db.public.test
+from @manage_db.external_stages.time_travel_stage
+files = ('customers.csv');
+
+select * from our_first_db.public.test;
+
+--use case: Update data (by mistake)--
+update our_first_db.public.test
+set first_name = 'Joyen'; --by mistakenly we have updated all first_names with Joyen, forgot to use where clause--
+
+select * from our_first_db.public.test;
+
+//// using time travel : Method 1 - few minutes back////
+
+select * from our_first_db.public.test at (offset =>-60*4.5); --(traveled back in time to check the values before)--
+
+
+//using time travel: MEthod 2 - before timestamp//
+
+select * from our_first_db.public.test before (timestamp =>'2022-08-14 15:15:40.581'::timestamp);
+--before using it, lets start again with creating a table and copying data--
+
+create or replace table our_first_db.public.test(
+    id int,
+    first_name string,
+    last_name string,
+    email string,
+    gender string,
+    job string,
+    phone string
+);
+
+copy into our_first_db.public.test
+from @manage_db.external_stages.time_travel_stage
+files = ('customers.csv');
+
+select * from our_first_db.public.test;
+
+--setting up UTC time for convenience--
+alter session set timezone = 'UTC';
+select current_timestamp;
+
+update our_first_db.public.test
+set job = 'Data Scientist'; --by mistake all jobs have been replaced--
+
+
+select * from our_first_db.public.test;
+
+select * from our_first_db.public.test before (timestamp =>'2022-08-14 10:04:02.969'::timestamp);
+
+// // // using time travel: method3 - id querying // // //
+--again create and reset data--
+
+create or replace table our_first_db.public.test(
+    id int,
+    first_name string,
+    last_name string,
+    email string,
+    gender string,
+    job string,
+    phone string
+);
+
+copy into our_first_db.public.test
+from @manage_db.external_stages.time_travel_stage
+files = ('customers.csv');
+
+select * from our_first_db.public.test;
+
+//altering table by mistake//
+update our_first_db.public.test
+set email = null;
+
+select * from our_first_db.public.test;
+
+select * from our_first_db.public.test before (statement =>'01a647a0-3200-8221-0001-3b3a0004f996');
+
+......TIME TRAVEL DATA RESTORE.........
+
+// again creating or resetting the table//
+
+create or replace table our_first_db.public.test(
+    id int,
+    first_name string,
+    last_name string,
+    email string,
+    gender string,
+    job string,
+    phone string
+);
+
+copy into our_first_db.public.test
+from @manage_db.external_stages.time_travel_stage
+files = ('customers.csv');
+
+select * from our_first_db.public.test;
+
+//altering data by mistake//
+update our_first_db.public.test
+set last_name = 'Tyson';
+
+update our_first_db.public.test
+set job = 'Data Scientist';
+
+select * from our_first_db.public.test before (statement =>'01a647ac-3200-8243-0001-3b3a0004d32a');
+
+// // // bad method// // / //
+create or replace table our_first_db.public.test as
+select * from our_first_db.public.test before (statement =>'01a647ac-3200-8243-0001-3b3a0004d32a');
+
+select * from our_first_db.public.test;
+
+create or replace table our_first_db.public.test as
+select * from our_first_db.public.test before (statement =>'01a647ac-3200-824c-0001-3b3a0004e9f2'); //we cannot go back after creation//
+--Time travel data is not available for table TEST. The requested time is either beyond the allowed-- 
+--time travel period or before the object creation time.--
+
+//// good method//// -- as it contains original query id before first alteration--
+
+create or replace table our_first_db.public.test(
+    id int,
+    first_name string,
+    last_name string,
+    email string,
+    gender string,
+    job string,
+    phone string
+);
+
+copy into our_first_db.public.test
+from @manage_db.external_stages.time_travel_stage
+files = ('customers.csv');
+
+select * from our_first_db.public.test;
+
+//altering data by mistake//
+update our_first_db.public.test
+set last_name = 'Tyson';
+
+update our_first_db.public.test
+set job = 'Data Scientist';
+
+create or replace table our_first_db.public.test_backup as
+select * from our_first_db.public.test before (statement =>'01a6492c-3200-8236-0001-3b3a00051096')
+
+truncate our_first_db.public.test;
+
+insert into our_first_db.public.test
+select * from our_first_db.public.test_backup;
+
+select * from our_first_db.public.test;
+
+--wanted to time travel before this as well--
+
+create or replace table our_first_db.public.test_backup as
+select * from our_first_db.public.test before (statement =>'01a6492c-3200-8221-0001-3b3a0004fc3a')
+
+truncate our_first_db.public.test;
+
+insert into our_first_db.public.test
+select * from our_first_db.public.test_backup;
+
+select * from our_first_db.public.test;
+
+///UNDROP///
+select * from "OUR_FIRST_DB"."PUBLIC"."TEST"
+
+drop table "OUR_FIRST_DB"."PUBLIC"."TEST"
+
+undrop table "OUR_FIRST_DB"."PUBLIC"."TEST"
+
+--if by mistake any table, schema or even any DB is dropped, we can restored it using undrop command--
