@@ -1,12 +1,8 @@
 ### Hi there 👋
-
-<!--
-**RohitC68/RohitC68** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-
-Here are some ideas to get you started:
-
 🔭 I’m currently working on GIT and getting my hands on with this tech stack.
 🌱 I’m currently learning GIT as well as Snowflake fundamentals.
+
+<--
 - 👯 I’m looking to collaborate on ...
 - 🤔 I’m looking for help with ...
 - 💬 Ask me about ...
