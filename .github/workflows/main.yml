@@ -8,7 +8,7 @@ jobs:
   deploy-power-bi-report:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v2
       - name: Install Python dependencies
         run: pip install powerbi-cli
       - name: Login to Power BI
