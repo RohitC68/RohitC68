@@ -1,0 +1,17 @@
+name: Power BI Report Deployment
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-power-bi-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python dependencies
+        run: pip install powerbi-cli
+      - name: Login to Power BI
+        run: powerbi login --username rohit.21141032324@mujonline.edu.in --password Pihu@3563
+      - name: Upload Power BI report
+        run: powerbi upload --file-path sales dashboard for capstone project.pbip --workspace-id 4218b6e2-e5e1-4ea3-b02b-856785b13af3
