@@ -2,7 +2,7 @@ name: Power BI Report Deployment
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   deploy-power-bi-report:
