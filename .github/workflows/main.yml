@@ -16,8 +16,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.x'  # Adjust Python version if needed
-        architecture: 'x64' #specify the architecture
+        python-version: '3.8'  # Adjust Python version if needed
 
     - name: Publish PBIX to Power BI
       env:
