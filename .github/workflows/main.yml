@@ -13,29 +13,15 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v2
 
-    - name: Install PowerShell
-      uses: actions/setup-powershell@v1
+    - name: Set up Python
+      uses: actions/setup-python@v2
       with:
-        pwsh-version: '7.x'
+        python-version: '3.1'  # Adjust Python version if needed
 
     - name: Publish PBIX to Power BI
       env:
         PB_USERNAME: ${{ secrets.PB_USERNAME }}
         PB_PASSWORD: ${{ secrets.PB_PASSWORD }}
       run: |
-        # Load Power BI module
-        Import-Module MicrosoftPowerBIMgmt
-
-        # Set Power BI credentials from environment variables
-        $Username = $env:PB_USERNAME
-        $Password = ConvertTo-SecureString -String $env:PB_PASSWORD -AsPlainText -Force
-        $Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Username, $Password
-
-        # Set workspace ID
-        $WorkspaceId = "4218b6e2-e5e1-4ea3-b02b-856785b13af3"
-
-        # Set path to .pbix file
-        $PbixFilePath = "sales dashboard for capstone project.pbip"
-
-        # Publish .pbix file to Power BI service
-        Publish-PowerBIReport -FilePath $PbixFilePath -WorkspaceId $WorkspaceId -Credential $Credential -Confirm:$false
+        pip install powerbiclient
+        python publish_pbix.py
